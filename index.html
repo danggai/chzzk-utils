@@ -15,7 +15,7 @@
   input[type=number] { -moz-appearance:textfield; appearance:textfield; }
   input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
   img, canvas, svg { -webkit-user-drag:none; user-drag:none; }
-  .wrap { display:grid; grid-template-columns:minmax(240px,1fr) 12px var(--side-w,380px); grid-template-rows:minmax(0,1fr); gap:0; padding:16px; height:100vh; }
+  .wrap { display:grid; grid-template-columns:var(--side-w,380px) 12px minmax(240px,1fr); grid-template-rows:minmax(0,1fr); gap:0; padding:16px; height:100vh; }
   .stage, .side { min-height:0; overflow-y:auto; overflow-x:hidden; scrollbar-width:thin; scrollbar-color:#3a3f48 transparent; }
   .side { display:flex; flex-direction:column; gap:16px; padding-right:4px; }
   .stage > *, .side > * { flex-shrink:0; }
@@ -252,7 +252,7 @@
   @keyframes acceptpulse { 0%,100% { transform:scale(1) rotate(0deg); } 50% { transform:scale(1.05) rotate(1.5deg); } }
   .left .stage { transition:background 1.2s; }
   body.accepting .left .stage { background:rgba(29,32,37,.45); }
-  body.focus .wrap { grid-template-columns:minmax(240px,1fr) 0px 0px; }
+  body.focus .wrap { grid-template-columns:0px 0px minmax(240px,1fr); }
   body.focus .side { opacity:0; pointer-events:none; }
   body.focus .splitter { visibility:hidden; }
   body.focus .wheel-box { width:min(100%, calc(100vh - 210px)); }
@@ -311,6 +311,11 @@
   .panel.float h2 { font-size:18px; color:var(--text); }
   .cskip { display:none; }
   .float .cskip { display:block; margin:8px auto 0; background:none; border:none; color:var(--sub); font-size:12px; text-decoration:underline; }
+  @media (min-width:861px) {
+    .side { grid-column:1; grid-row:1; }
+    .splitter { grid-column:2; grid-row:1; }
+    .left { grid-column:3; grid-row:1; }
+  }
   @media (max-width:860px) {
     .wrap { grid-template-columns:1fr; grid-template-rows:auto; height:auto; }
     .stage, .side { overflow:visible; }
@@ -2489,7 +2494,7 @@ state.nextCi = Math.max(state.nextCi || 0, ...state.items.map((i) => i.ci + 1), 
     document.body.style.userSelect = 'none';
   });
   sp.addEventListener('pointermove', (e) => {
-    if (sp.classList.contains('drag')) setW(innerWidth - 22 - e.clientX);
+    if (sp.classList.contains('drag')) setW(e.clientX - 22);
   });
   const end = () => {
     if (!sp.classList.contains('drag')) return;
