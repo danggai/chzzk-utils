@@ -195,6 +195,10 @@
   .pill.closed .dot2, .pill.idle .dot2 { background:#8b919a; }
   @keyframes blink { 50% { opacity:.35; } }
   .chinfo { display:flex; align-items:center; gap:10px; margin:0 0 12px; padding:8px 10px; border-radius:10px; background:#14171b; border:1px solid var(--line); }
+  .chprev { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:13px; color:var(--sub); }
+  .chprev[hidden] { display:none; }
+  .chprev img { width:24px; height:24px; border-radius:50%; object-fit:cover; background:#2a2f37; }
+  .chprev b { color:var(--text); }
   .chinfo[hidden] { display:none; }
   .chinfo .chtext { flex:1; min-width:0; }
   .chinfo .disc { margin-left:auto; flex:none; padding:6px 12px; }
@@ -424,6 +428,7 @@
         <input id="channel" placeholder="채널 URL 또는 채널 ID">
         <button id="btnConn" class="primary">연결</button>
       </div>
+      <div class="chprev" id="chPrev" hidden><img id="chPrevImg" alt="" referrerpolicy="no-referrer" hidden><span id="chPrevName"></span></div>
       <button id="btnSkip" class="cskip">연결 없이 사용</button>
       <div id="manual" class="manual" style="display:none">
         <div class="mtitle" id="mtitle"></div>
@@ -2143,6 +2148,41 @@ async function loadChannelInfo(id) {
   } catch {}
 }
 
+const prevCache = {};
+let prevTimer = null;
+function updatePrev() {
+  clearTimeout(prevTimer);
+  const box = $('chPrev');
+  const m = $('channel').value.match(/[0-9a-f]{32}/i);
+  if (!m || connected) { box.hidden = true; return; }
+  const id = m[0].toLowerCase();
+  const show = (c) => {
+    if (!(($('channel').value.match(/[0-9a-f]{32}/i) || [''])[0].toLowerCase() === id)) return;
+    box.hidden = false;
+    const im = $('chPrevImg');
+    if (c && c.image) { im.src = c.image; im.hidden = false; } else im.hidden = true;
+    $('chPrevName').innerHTML = c ? '<b></b>' : '채널을 찾지 못했어요';
+    if (c) $('chPrevName').firstChild.textContent = c.name;
+  };
+  if (prevCache[id] !== undefined) return show(prevCache[id]);
+  box.hidden = false;
+  $('chPrevImg').hidden = true;
+  $('chPrevName').textContent = '확인 중...';
+  prevTimer = setTimeout(async () => {
+    let c = null;
+    try {
+      const j = await getJson('https://api.chzzk.naver.com/service/v1/channels/' + id, true);
+      const x = j && j.content;
+      if (x && x.channelName) c = { name: x.channelName, image: x.channelImageUrl || '' };
+    } catch { prevCache[id] = undefined; return show(null); }
+    prevCache[id] = c;
+    show(c);
+  }, 350);
+}
+$('channel').addEventListener('input', updatePrev);
+$('channel').addEventListener('paste', () => setTimeout(updatePrev, 0));
+setTimeout(updatePrev, 0);
+
 function loadCache(id) {
   try {
     const c = JSON.parse(localStorage.getItem(CONN_KEY));
@@ -2227,6 +2267,7 @@ function setConn(on) {
   $('conn').textContent = on ? '연결됨' : '끊김';
   $('conn').className = 'badge' + (on ? ' on' : '');
   $('btnConn').textContent = on ? '해제' : '연결';
+  updatePrev();
   $('connPanel').classList.toggle('on', on);
   renderChInfo();
   log(on ? '채팅 연결됨' : '채팅 연결 끊김');
