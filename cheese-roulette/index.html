@@ -2137,7 +2137,7 @@ function renderChInfo() {
 
 async function loadChannelInfo(id) {
   try {
-    const j = await getJson('https://api.chzzk.naver.com/service/v1/channels/' + id, true);
+    const j = await getJson('https://api.chzzk.naver.com/service/v1/channels/' + id, true, (v) => v && v.content && v.content.channelName);
     const c = j && j.content;
     if (c && c.channelName && conn.channel === id) {
       chInfo = { name: c.channelName, image: c.channelImageUrl || '' };
@@ -2172,7 +2172,7 @@ function updatePrev() {
   prevTimer = setTimeout(async () => {
     let c = null;
     try {
-      const j = await getJson('https://api.chzzk.naver.com/service/v1/channels/' + id, true);
+      const j = await getJson('https://api.chzzk.naver.com/service/v1/channels/' + id, true, (v) => v && v.content && v.content.channelName);
       const x = j && j.content;
       if (x && x.channelName) c = { name: x.channelName, image: x.channelImageUrl || '' };
     } catch { prevCache[id] = undefined; return show({ err: 1 }); }
@@ -2250,7 +2250,7 @@ const tokenUrl = (cid) => `https://comm-api.game.naver.com/nng_main/v1/chats/acc
 
 const ROUTES = [
   ['직접', (u) => u],
-  ['corsproxy.io', (u) => 'https://corsproxy.io/?url=' + encodeURIComponent(u)],
+  ['cors.lol', (u) => 'https://api.cors.lol/?url=' + encodeURIComponent(u)],
   ['allorigins', (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u)],
   ['codetabs', (u) => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)],
 ];
@@ -2296,7 +2296,7 @@ function hideManual() {
   lookupWin = null;
 }
 
-async function getJson(url, quiet) {
+async function getJson(url, quiet, valid) {
   const L = quiet ? () => {} : log;
   for (let k = 0; k < ROUTES.length; k++) {
     const i = (routeIdx + k) % ROUTES.length;
@@ -2305,6 +2305,7 @@ async function getJson(url, quiet) {
       const r = await fetch(ROUTES[i][1](url), { signal: AbortSignal.timeout(5000) });
       if (!r.ok) { L(ROUTES[i][0] + ' 실패: HTTP ' + r.status); continue; }
       const j = await r.json();
+      if (valid && !valid(j)) { L(ROUTES[i][0] + ' 응답 형식 다름'); continue; }
       routeIdx = i;
       return j;
     } catch { L(ROUTES[i][0] + ' 실패'); }
