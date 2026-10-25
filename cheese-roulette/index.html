@@ -2161,8 +2161,9 @@ function updatePrev() {
     box.hidden = false;
     const im = $('chPrevImg');
     if (c && c.image) { im.src = c.image; im.hidden = false; } else im.hidden = true;
-    $('chPrevName').innerHTML = c ? '<b></b>' : '채널을 찾지 못했어요';
-    if (c) $('chPrevName').firstChild.textContent = c.name;
+    if (c && c.err) $('chPrevName').textContent = '자동 조회가 막혔어요 (연결하면 조회 창으로 확인)';
+    else if (c) { $('chPrevName').innerHTML = '<b></b>'; $('chPrevName').firstChild.textContent = c.name; }
+    else $('chPrevName').textContent = '채널을 찾지 못했어요';
   };
   if (prevCache[id] !== undefined) return show(prevCache[id]);
   box.hidden = false;
@@ -2174,7 +2175,7 @@ function updatePrev() {
       const j = await getJson('https://api.chzzk.naver.com/service/v1/channels/' + id, true);
       const x = j && j.content;
       if (x && x.channelName) c = { name: x.channelName, image: x.channelImageUrl || '' };
-    } catch { prevCache[id] = undefined; return show(null); }
+    } catch { prevCache[id] = undefined; return show({ err: 1 }); }
     prevCache[id] = c;
     show(c);
   }, 350);
@@ -2251,6 +2252,7 @@ const ROUTES = [
   ['직접', (u) => u],
   ['corsproxy.io', (u) => 'https://corsproxy.io/?url=' + encodeURIComponent(u)],
   ['allorigins', (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u)],
+  ['codetabs', (u) => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)],
 ];
 let routeIdx = 0;
 
