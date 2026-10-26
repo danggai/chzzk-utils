@@ -183,6 +183,9 @@
   .splitter:hover::after, .splitter.drag::after { background:var(--accent); }
   .left { position:relative; min-height:0; min-width:0; display:flex; }
   .left .stage { flex:1 1 auto; min-width:0; padding-top:56px; }
+  .lostbar { position:absolute; top:14px; left:50%; transform:translateX(-50%); z-index:6; padding:8px 16px; border-radius:10px; background:rgba(255,93,93,.92); color:#fff; font-weight:700; font-size:14px; box-shadow:0 4px 18px rgba(255,93,93,.35); animation:lostPulse 1.4s ease-in-out infinite; pointer-events:none; white-space:nowrap; }
+  .lostbar[hidden] { display:none; }
+  @keyframes lostPulse { 50% { opacity:.65; } }
   .ver { position:absolute; left:14px; bottom:10px; z-index:5; font-size:11px; color:var(--sub); opacity:.6; pointer-events:none; }
   .hud { position:absolute; top:14px; right:14px; z-index:5; display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; max-width:calc(100% - 28px); pointer-events:none; }
   .pill { display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:999px; background:rgba(20,22,26,.82); border:1px solid var(--line);
@@ -350,6 +353,7 @@
     <span class="pill" id="hudPhase"><i class="dot2"></i><span>대기</span></span>
   </div>
   <span class="ver" id="ver">v1.0.0</span>
+  <div class="lostbar" id="lostBar" hidden></div>
   <div id="cheeseFx" class="cheesefx"></div>
   <div id="gains" class="gains"></div>
   <button id="btnSfx" class="mute sfx" title="효과음 끄기" aria-label="효과음 끄기">
@@ -2283,9 +2287,20 @@ function syncLock() {
   $('channel').disabled = connected || (want && !manualKind);
 }
 
+let hadConn = false, userDisc = false, lostFail = false, netTries = 0;
+function updLost() {
+  const b = $('lostBar');
+  if (!b) return;
+  const lost = hadConn && !userDisc && !connected;
+  b.hidden = !lost;
+  if (lost) b.textContent = lostFail ? '채팅 연결 끊김 · 재연결 실패, 연결 버튼을 다시 눌러주세요' : manualKind ? '채팅 연결 끊김 · 설정창에서 조회 창으로 재연결 필요' : '채팅 연결 끊김 · 재연결 중...';
+}
+
 function setConn(on) {
   if (connected === on) return;
   connected = on;
+  if (on) { hadConn = true; userDisc = false; lostFail = false; }
+  updLost();
   syncLock();
   updateHud();
   if (on) applyDock(true);
@@ -2309,6 +2324,7 @@ function showManual(kind, url) {
   $('manualLink').href = url;
   $('manualJson').style.display = 'none';
   $('manualJson').value = '';
+  updLost();
 }
 
 function hideManual() {
@@ -2317,6 +2333,7 @@ function hideManual() {
   stopClipPoll();
   try { if (lookupWin) lookupWin.close(); } catch {}
   lookupWin = null;
+  updLost();
 }
 
 async function getJson(url, quiet, valid) {
@@ -2355,6 +2372,8 @@ async function startConnect() {
   localStorage.setItem('cheese-roulette-channel', id);
   if (conn.channel !== id) conn = loadCache(id) || { channel: id, chatId: '', token: undefined };
   want = true;
+  lostFail = false;
+  updLost();
   $('btnConn').disabled = true;
   $('btnConn').textContent = '연결 중...';
   syncLock();
@@ -2394,7 +2413,7 @@ async function startConnect() {
 
 function openSocket() {
   closeSocket();
-  let ok = false;
+  let ok = false, opened = false, lastMsg = Date.now();
   let sn = 0;
   for (const ch of String(conn.chatId)) sn += ch.charCodeAt(0);
   sn = (sn % 9) + 1;
@@ -2403,6 +2422,7 @@ function openSocket() {
   ws = s;
 
   s.onopen = () => {
+    opened = true;
     s.send(JSON.stringify({
       ver: '3', cmd: 100, svcid: 'game', cid: conn.chatId, tid: 1,
       bdy: {
@@ -2411,12 +2431,23 @@ function openSocket() {
       },
     }));
     pingTimer = setInterval(() => {
+      if (ws !== s) return;
+      if (ok && Date.now() - lastMsg > 90000) {
+        log('채팅 응답 없음, 재연결');
+        s.onclose = null;
+        try { s.close(); } catch {}
+        clearInterval(pingTimer);
+        setConn(false);
+        retryTimer = setTimeout(openSocket, 1000);
+        return;
+      }
       if (s.readyState === 1) s.send(JSON.stringify({ ver: '3', cmd: 0 }));
     }, 20000);
   };
 
   s.onmessage = (ev) => {
     let m;
+    lastMsg = Date.now();
     try { m = JSON.parse(ev.data); } catch { return; }
     if (m.cmd === 0) s.send(JSON.stringify({ ver: '3', cmd: 10000 }));
     else if (m.cmd === 10100) {
@@ -2426,6 +2457,7 @@ function openSocket() {
       } else {
         ok = true;
         freshTries = 0;
+        netTries = 0;
         saveConn();
         setConn(true);
       }
@@ -2444,7 +2476,7 @@ function openSocket() {
         }
         let nick = ex.isAnonymous ? '' : ex.nickname || '';
         if (!ex.isAnonymous) try { nick = nick || JSON.parse(b.profile).nickname; } catch {}
-        onDonation({ amount, message: String(b.msg ?? b.content ?? ''), nick });
+        try { onDonation({ amount, message: String(b.msg ?? b.content ?? ''), nick }); } catch (err) { log('후원 처리 오류: ' + err.message); }
       }
     }
   };
@@ -2455,6 +2487,11 @@ function openSocket() {
     if (!want || ws !== s) return;
     if (ok) {
       retryTimer = setTimeout(openSocket, 5000);
+    } else if (!opened) {
+      netTries++;
+      const wait = Math.min(60000, 5000 * netTries);
+      log(`채팅 서버 접속 실패, ${wait / 1000}초 후 재시도`);
+      retryTimer = setTimeout(openSocket, wait);
     } else {
       want = false;
       syncLock();
@@ -2467,13 +2504,14 @@ function openSocket() {
         return;
       }
       if (conn.token === null) showManual('token', tokenUrl(conn.chatId));
-      else { conn.token = undefined; log('연결 실패'); }
+      else { conn.token = undefined; lostFail = true; updLost(); log('연결 실패'); }
     }
   };
 }
 
 function disconnectNow() {
   {
+    userDisc = true;
     want = false;
     closeSocket();
     setConn(false);
@@ -2484,6 +2522,7 @@ function disconnectNow() {
     conn = { channel: '', chatId: '', token: undefined };
     chInfo = null;
     renderChInfo();
+    updLost();
   }
 }
 $('btnDisc').onclick = () => { if (state.phase !== 'open') disconnectNow(); };
