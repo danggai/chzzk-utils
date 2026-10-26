@@ -2095,7 +2095,6 @@ async function applyAmbient(url) {
     async () => pickColors(await loadImg(url, true)),
     viaProxy(() => 'https://wsrv.nl/?url=' + encodeURIComponent(clean) + '&w=64&h=64&output=png'),
     viaProxy(() => 'https://images.weserv.nl/?url=' + encodeURIComponent(clean) + '&w=64&h=64&output=png'),
-    viaProxy(() => ROUTES[1][1](url)),
     viaProxy(() => ROUTES[2][1](url)),
   ];
   try {
@@ -2142,13 +2141,38 @@ async function loadChannelInfo(id) {
     if (c && c.channelName && conn.channel === id) {
       chInfo = { name: c.channelName, image: c.channelImageUrl || '' };
       conn.info = chInfo;
+      putCh(id, chInfo);
       if (connected) saveConn();
       renderChInfo();
     }
   } catch {}
 }
 
-const prevCache = {};
+const CH_KEY = 'cheese-roulette-chcache';
+const CHAT_FRESH = 30 * 60 * 1000;
+let chCache = {};
+try { chCache = JSON.parse(localStorage.getItem(CH_KEY)) || {}; } catch {}
+function putCh(id, v) {
+  chCache[id] = Object.assign({}, chCache[id], v, { ts: Date.now() });
+  try { localStorage.setItem(CH_KEY, JSON.stringify(chCache)); } catch {}
+}
+
+async function fetchCh(id) {
+  const ok = (v) => v && v.code === 200;
+  const d = await getJson(detailUrl(id), true, ok);
+  const x = d.content, ch = x && x.channel;
+  if (ch && ch.channelName) {
+    putCh(id, { name: ch.channelName, image: ch.channelImageUrl || '', chatId: x.chatChannelId || '' });
+    return chCache[id];
+  }
+  const j = await getJson('https://api.chzzk.naver.com/service/v1/channels/' + id, true, ok);
+  const c = j.content;
+  if (!c || !c.channelName) return null;
+  putCh(id, { name: c.channelName, image: c.channelImageUrl || '', chatId: '' });
+  return chCache[id];
+}
+
+const prevBusy = {};
 let prevTimer = null;
 function updatePrev() {
   clearTimeout(prevTimer);
@@ -2165,18 +2189,17 @@ function updatePrev() {
     else if (c) { $('chPrevName').innerHTML = '<b></b>'; $('chPrevName').firstChild.textContent = c.name; }
     else $('chPrevName').textContent = '채널을 찾지 못했어요';
   };
-  if (prevCache[id] !== undefined) return show(prevCache[id]);
+  if (chCache[id] && chCache[id].name) return show(chCache[id]);
   box.hidden = false;
   $('chPrevImg').hidden = true;
   $('chPrevName').textContent = '확인 중...';
+  if (prevBusy[id]) return;
   prevTimer = setTimeout(async () => {
+    prevBusy[id] = true;
     let c = null;
-    try {
-      const j = await getJson('https://api.chzzk.naver.com/service/v1/channels/' + id, true, (v) => v && v.content && v.content.channelName);
-      const x = j && j.content;
-      if (x && x.channelName) c = { name: x.channelName, image: x.channelImageUrl || '' };
-    } catch { prevCache[id] = undefined; return show({ err: 1 }); }
-    prevCache[id] = c;
+    try { c = await fetchCh(id); }
+    catch { c = { err: 1 }; }
+    prevBusy[id] = false;
     show(c);
   }, 350);
 }
@@ -2336,6 +2359,9 @@ async function startConnect() {
   $('btnConn').textContent = '연결 중...';
   syncLock();
   log('연결 시작: ' + id);
+  const pc = chCache[id.toLowerCase()];
+  if (!conn.info && pc && pc.name) conn.info = { name: pc.name, image: pc.image };
+  if (!conn.chatId && pc && pc.chatId && Date.now() - pc.ts < CHAT_FRESH) conn.chatId = pc.chatId;
   if (conn.info) { chInfo = conn.info; renderChInfo(); } else loadChannelInfo(id);
 
   try {
@@ -2343,6 +2369,7 @@ async function startConnect() {
       try {
         const j = await getJson(liveUrl(id));
         conn.chatId = (j.content && j.content.chatChannelId) || '';
+        if (conn.chatId) putCh(id, { chatId: conn.chatId });
         if (!conn.chatId) {
           want = false;
           return log('채팅 채널을 찾지 못함 (방송 중인지, 채널 ID가 맞는지 확인)');
